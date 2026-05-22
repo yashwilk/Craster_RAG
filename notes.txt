@@ -1,0 +1,15 @@
+python --version
+Python 3.11.9
+
+cd "C:\Users\YashwilKotian\OneDrive - craster.com\Desktop"
+
+mkdir craster-rag
+cd craster-rag
+
+python -m venv .venv
+
+create folders
+mkdir test or mkdir src/craster-rag/ingest
+
+type nul > src\craster_rag\ingestion\__init__.py
+type nul > src\craster_rag\__init__.py
