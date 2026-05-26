@@ -13,3 +13,61 @@ mkdir test or mkdir src/craster-rag/ingest
 
 type nul > src\craster_rag\ingestion\__init__.py
 type nul > src\craster_rag\__init__.py
+
+
+
+Simple version of base_loader
+from abc import ABC, abstractmethod
+
+
+# Base Chef Rules
+class PizzaChef(ABC):
+
+    @abstractmethod
+    def make_pizza(self):
+        pass
+
+    @abstractmethod
+    def check_ingredients(self):
+        pass
+
+
+# Cheese pizza chef
+class CheeseChef(PizzaChef):
+
+    def make_pizza(self):
+        print("Making cheese pizza")
+
+    def check_ingredients(self):
+        print("Checking cheese and dough")
+
+
+# Pepperoni pizza chef
+class PepperoniChef(PizzaChef):
+
+    def make_pizza(self):
+        print("Making pepperoni pizza")
+
+    def check_ingredients(self):
+        print("Checking pepperoni and dough")
+
+
+# Use chefs
+chef1 = CheeseChef()
+chef1.make_pizza()
+
+chef2 = PepperoniChef()
+chef2.check_ingredients()
+
+
+without __repr__, printing a document object will look like:
+<__main__.Document object at 0x000001F3>
+
+__repr__ gives it a readable string so print(doc) shows useful info instead of a memory address.
+
+
+What @abstractmethod Actually Means
+When you put @abstractmethod on a method, you're saying:
+# I am declaring this method EXISTS
+# but I am NOT writing what it does
+# Every class that inherits from me MUST write their own version of it
