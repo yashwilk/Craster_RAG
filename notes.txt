@@ -71,3 +71,7 @@ When you put @abstractmethod on a method, you're saying:
 # I am declaring this method EXISTS
 # but I am NOT writing what it does
 # Every class that inherits from me MUST write their own version of it
+
+
+tiktoken
+A library made by OpenAI that converts text into tokens — the same way AI models like Claude and GPT actually read text.

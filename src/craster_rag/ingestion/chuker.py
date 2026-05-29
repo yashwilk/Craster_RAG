@@ -1,0 +1,167 @@
+"""Splits Document objects into smaller Chunk objects.
+
+Chunking strategy:
+1) Split by paragraphs first.
+2)Group paragraphs into chunks up to chunk_size tokens
+3) Add overlap between chunks
+4) If single paragraph exceeds chunk_size, split by sentences
+5) Add overlap between chunks so context is not lost at boundaries.
+"""
+
+import logging
+import re
+from dataclasses import dataclass, field
+from typing import List, Optional
+import tiktoken
+
+from craster_rag.ingestion.base_loader import Document
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class Chunk:
+    content:str
+    source:str
+    title:str
+    doc_type:str
+    chunk_index:int  #Position of this chunk in the document (0, 1, 2...)
+    total_chunk:int
+    token_count: int
+    metadata:dict=field(default_factory=dict)
+    chunk_id:Optional[str]=None
+
+    """A chunk is a section of a document.It contains hundreds of tokens
+    chunk_size = 500 words
+    "Acumatica" = 1 word but 3 tokens
+
+    500 words might actually be 800 tokens
+    """
+
+    def __post_init__(self):
+        if self.chunk_id is None:
+            self.chunk_id=f"{self.source}::chunk_{self.chunk_index}"
+
+    def __repr__(self)->str:
+        return (
+            f"Chunk("
+            f"title='{self.title}', "
+            f"chunk={self.chunk_index + 1}/{self.total_chunk}, "
+            f"tokens={self.token_count})"
+        )
+
+class Chunker:
+    #Splits Document objects into Chunk objects.
+    def __init__(self,chunk_size:int=500,chunk_overlap: int=50):
+         if chunk_overlap>=chunk_size:
+            raise ValueError(
+                f"chunk_overlap ({chunk_overlap}) must be "
+                f"less than chunk_size ({chunk_size})"
+            )
+         self.chunk_size=chunk_size
+         self.chunk_overlap=chunk_overlap
+         self.tokenizer=tiktoken.get_encoding("cl100k_base")
+         logger.info(
+            f"Chunker initialised — "
+            f"chunk_size={chunk_size}, "
+            f"chunk_overlap={chunk_overlap}"
+        )
+
+    def chunk_document(self, documents: List[Document]) -> list[Chunk]:
+        # Loops through every Document and chunks each one.
+        if not documents:
+            logger.warning("No documents provided to chunker")
+            return []
+
+        all_chunks = []
+        for doc in documents:
+            chunks = self.chunk_single_document(doc)
+            all_chunks.extend(chunks)
+            logger.info(
+                f"'{doc.title}' → {len(chunks)} chunk(s)"
+            )
+
+        logger.info(
+            f"Chunking complete — "
+            f"{len(documents)} document(s) → "
+            f"{len(all_chunks)} total chunk(s)"
+        )
+        return all_chunks
+
+
+
+
+
+    def chunk_single_document(self,document:Document)->List[Chunk]:
+         #        Split a single Document into Chunks.
+          """Strategy:
+
+            2. Group paragraphs into chunks up to chunk_size
+            3. Add overlap between consecutive chunks"""
+
+          if not document.content.strip():
+               logger.warning(f"Empty document skipped: '{document.title}'")
+            return []
+        #1. Split content into paragraphs
+        praragraphs=self.split_into_paragraphs(document.content)
+
+
+
+    def split_into_paragraphs(self, text: str) -> list[str]:
+        #"Paragraph" here means any block of text separated by one or more blank lines.
+
+        paragraphs = re.split(r"\n\s*\n", text)  # \n new line -s* space-\n new line
+        paragraphs = [p.strip() for p in paragraphs if p.strip()]
+        return paragraphs
+
+
+
+    def _count_tokens(self, text: str) -> int:
+        return len(self.tokenizer.encode(text))
+
+    def _split_long_paragraph(self, paragraph: str) -> List[str]:
+        current_chunk = []
+        current_tokens = 0
+        chunks = []
+        sentences = re.split(r"(?<=[.!?])\s+", paragraph)  # split on sentence endings (. ! ?)
+        for sentence in sentences:
+            sent_tokens = self._count_tokens(sentence)
+
+            if current_tokens + sent_tokens > self.chunk_size:
+                if current_chunk:
+                    chunks.append(" ".join(current_chunk))
+                current_chunk = [sentence]
+                current_tokens = sent_tokens
+            else:
+                current_chunk.append(sentence)
+                current_tokens += sent_tokens
+        if current_chunk:
+            chunks.append(" ".join(current_chunk))
+
+        return chunks
+
+    def _group_into_chunks(self, paragraphs: List[str]) -> list[str]:
+        #Group paragraphs into chunks up to chunk_size tokens.
+        #If a single paragraph is too long, splits it by sentences.
+        chunks = []
+        current_chunk = []
+        current_tokens = 0
+        for paragraph in paragraphs:
+            para_tokens = self._count_tokens(paragraph)
+            if para_tokens > self.chunk_size:
+                sentence_chunks = self._split_long_paragraph(paragraph)
+                chunks.extend(sentence_chunks)
+                continue
+
+            if current_tokens + para_tokens > self.chunk_size:
+                if current_chunk:
+                    chunks.append("\n\n".join(current_chunk))
+                current_chunk = [paragraph]
+                current_tokens = para_tokens
+            else:
+                current_chunk.append(paragraph)
+                current_tokens += para_tokens
+
+        if current_chunk:
+            chunks.append("\n\n".join(current_chunk))
+        return chunks
