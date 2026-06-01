@@ -26,7 +26,7 @@ class Chunk:
     title:str
     doc_type:str
     chunk_index:int  #Position of this chunk in the document (0, 1, 2...)
-    total_chunk:int
+    total_chunks:int
     token_count: int
     metadata:dict=field(default_factory=dict)
     chunk_id:Optional[str]=None
@@ -46,22 +46,22 @@ class Chunk:
         return (
             f"Chunk("
             f"title='{self.title}', "
-            f"chunk={self.chunk_index + 1}/{self.total_chunk}, "
+            f"chunk={self.chunk_index + 1}/{self.total_chunks}, "
             f"tokens={self.token_count})"
         )
 
 class Chunker:
     #Splits Document objects into Chunk objects.
     def __init__(self,chunk_size:int=500,chunk_overlap: int=50):
-         if chunk_overlap>=chunk_size:
+        if chunk_overlap>=chunk_size:
             raise ValueError(
                 f"chunk_overlap ({chunk_overlap}) must be "
                 f"less than chunk_size ({chunk_size})"
             )
-         self.chunk_size=chunk_size
-         self.chunk_overlap=chunk_overlap
-         self.tokenizer=tiktoken.get_encoding("cl100k_base")
-         logger.info(
+        self.chunk_size=chunk_size
+        self.chunk_overlap=chunk_overlap
+        self.tokenizer=tiktoken.get_encoding("cl100k_base")
+        logger.info(
             f"Chunker initialised — "
             f"chunk_size={chunk_size}, "
             f"chunk_overlap={chunk_overlap}"
@@ -89,22 +89,41 @@ class Chunker:
         return all_chunks
 
 
-
-
-
     def chunk_single_document(self,document:Document)->List[Chunk]:
-         #        Split a single Document into Chunks.
-          """Strategy:
+        #        Split a single Document into Chunks.
+        """Strategy:
 
             2. Group paragraphs into chunks up to chunk_size
             3. Add overlap between consecutive chunks"""
 
-          if not document.content.strip():
-               logger.warning(f"Empty document skipped: '{document.title}'")
+        if not document.content.strip():
+            logger.warning(f"Empty document skipped: '{document.title}'")
             return []
         #1. Split content into paragraphs
-        praragraphs=self.split_into_paragraphs(document.content)
+        paragraphs=self.split_into_paragraphs(document.content)
+        raw_chunks = self._group_into_chunks(paragraphs)
+        overlapped_chunks = self._add_overlap(raw_chunks)
+        total = len(overlapped_chunks)
+        chunks = []
 
+        for index, chunk_text in enumerate(overlapped_chunks):
+            chunk = Chunk(
+                content      = chunk_text.strip(),
+                source       = document.source,
+                title        = document.title,
+                doc_type     = document.doc_type,
+                chunk_index  = index,
+                total_chunks = total,
+                token_count  = self._count_tokens(chunk_text),
+                metadata     = {
+                    **document.metadata,        # carry over all doc metadata
+                    "chunk_index"  : index,
+                    "total_chunks" : total,
+                },
+            )
+            chunks.append(chunk)
+
+        return chunks
 
 
     def split_into_paragraphs(self, text: str) -> list[str]:
@@ -113,7 +132,6 @@ class Chunker:
         paragraphs = re.split(r"\n\s*\n", text)  # \n new line -s* space-\n new line
         paragraphs = [p.strip() for p in paragraphs if p.strip()]
         return paragraphs
-
 
 
     def _count_tokens(self, text: str) -> int:
@@ -165,3 +183,31 @@ class Chunker:
         if current_chunk:
             chunks.append("\n\n".join(current_chunk))
         return chunks
+
+
+    def _add_overlap(self,chunks:list[str])->list[str]:
+        #Overlap ensures each chunk has a bit of context
+        if len(chunks)<=1:
+            return chunks
+
+        overlapped=[chunks[0]]
+
+        for i in range(1,len(chunks)):
+            current_chunk=chunks[i]
+            previous_chunk=chunks[i-1]
+
+            overlap_text=self._get_last_n_tokens(previous_chunk,self.chunk_overlap)
+            overlapped_chunk=overlap_text+"\n\n "+current_chunk
+            overlapped.append(overlapped_chunk)
+
+        return overlapped
+
+
+    def _get_last_n_tokens(self,text:str,n:int)->str:
+
+        #Get the last n tokens of a string as text.
+        tokens=self.tokenizer.encode(text)
+        if len(tokens)<=n:
+            return text
+        last_n_token=tokens[-n:]
+        return self.tokenizer.decode(last_n_token)
