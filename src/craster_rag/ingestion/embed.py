@@ -86,26 +86,18 @@ class Embedder:
             logger.warning("No chunks provided to embedder")
             return []
 
-        #texts-loop through each chunk ina extract the chunk.content as array.so each values in the array is a chunk.
         texts = [chunk.content for chunk in chunks]
-
         embeddings = self._embed_text(texts)
-
         embedded_chunks = []
         for chunk, embedding in zip(chunks, embeddings):
-            embedded_chunks.append(EmbeddedChunk(
-                content=chunk.content,
-                source=chunk.source,
-                title=chunk.title,
-                doc_type=chunk.doc_type,
-                chunk_index=chunk.chunk_index,
-                total_chunks=chunk.total_chunks,
-                token_count=chunk.token_count,
-                metadata=chunk.metadata,
-                chunk_id=chunk.chunk_id,
-                embedding=embedding,
-            ))
+            embedded_chunk = _build_embedded_chunk(chunk, embedding)
+            embedded_chunks.append(embedded_chunk)
 
+        logger.info(
+            f"Embedding complete — "
+            f"{len(embedded_chunks)} chunk(s) embedded "
+            f"with {len(embeddings[0])} dimensions each"
+        )
         return embedded_chunks
 
     def _embed_text(self, texts: list[str]) -> list[list[float]]:
@@ -138,3 +130,19 @@ class Embedder:
         embedding = self._model.encode(
             prefixed_query, normalize_embeddings=True, convert_to_numpy=True)
         return embedding.tolist()
+
+
+
+def _build_embedded_chunk(chunk: Chunk, embedding: list[float]) -> EmbeddedChunk:
+    return EmbeddedChunk(
+            content      = chunk.content,
+            source       = chunk.source,
+            title        = chunk.title,
+            doc_type     = chunk.doc_type,
+            chunk_index  = chunk.chunk_index,
+            total_chunks = chunk.total_chunks,
+            token_count  = chunk.token_count,
+            metadata     = chunk.metadata,
+            chunk_id     = chunk.chunk_id,
+            embedding    = embedding,
+        )
