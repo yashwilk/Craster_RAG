@@ -1,10 +1,12 @@
-# Environment
+# ── Environment ─────────────────────────────────────────
 .env
+.env.staging
+.env.production
 .venv/
 venv/
 env/
 
-# Python
+# ── Python ──────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
@@ -13,18 +15,38 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+.eggs/
 
-# Data & DB
-data/rag.db
+# ── Testing & Coverage ──────────────────────────────────
+.coverage
+htmlcov/
+.pytest_cache/
+coverage.xml
+
+# ── Code Quality ────────────────────────────────────────
+.mypy_cache/
+.ruff_cache/
+
+# ── Data & DB ───────────────────────────────────────────
+data/documents/
+data/images/
 data/*.db
 
-# Logs
-logs/*.log
+# ── Logs ────────────────────────────────────────────────
+logs/
+!logs/.gitkeep
 
-# IDE
+# ── MLflow ──────────────────────────────────────────────
+mlflow/experiments/
+mlruns/
+
+# ── Docker ──────────────────────────────────────────────
+docker/volumes/
+
+# ── IDE ─────────────────────────────────────────────────
 .vscode/settings.json
 .idea/
 
-# OS
+# ── OS ──────────────────────────────────────────────────
 .DS_Store
 Thumbs.db

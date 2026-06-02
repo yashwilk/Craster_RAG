@@ -75,3 +75,36 @@ When you put @abstractmethod on a method, you're saying:
 
 tiktoken
 A library made by OpenAI that converts text into tokens — the same way AI models like Claude and GPT actually read text.
+
+
+from dataclasses import dataclass
+
+@dataclass
+class User:
+    name: str
+    age: int
+
+user = User(name="John", age=25)
+print(user)
+Automatic __init__()
+Automatic __repr__()
+Automatic __eq__()
+
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+class Settings(BaseSettings):
+    database_url: str
+    api_key: str
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8"
+    )
+
+
+Supabase is an open-source Backend-as-a-Service (BaaS) built on top of PostgreSQL. It provides:
+
+PostgreSQL database
+Vector database capabilities via pgvector
+pgvector is a PostgreSQL extension that allows you to store and search vector embeddings directly in your database.
