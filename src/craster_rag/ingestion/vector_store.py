@@ -20,38 +20,38 @@ Two main operations:
 
 import logging
 from dataclasses import dataclass
-from typing import Optional
+from typing import List, Optional
 
-from supabase import create_client,Client
+from supabase import create_client, Client
 
 from config import settings
 
 from craster_rag.ingestion.embedder import EmbeddedChunk
 
-logger=logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 @dataclass
 class SearchResult:
-    #A single search result returned from vector store.
-    chunk_id:str
-    content:str
-    source:str
-    title:str
-    doc_type:str
-    chunk_index:int
-    total_chunks:int
-    token_count:int
-    metadata:dict
-    score:float
+    chunk_id: str
+    content: str
+    source: str
+    title: str
+    doc_type: str
+    chunk_index: int
+    total_chunks: int
+    token_count: int
+    metadata: dict
+    score: float
 
-    def __repr__(self)->str:
+    def __repr__(self) -> str:
         return (
             f"SearchResult("
             f"title='{self.title}', "
             f"chunk={self.chunk_index + 1}/{self.total_chunks}, "
             f"score={self.score:.3f})"
         )
+
 
 class VectorStore:
     """
@@ -62,23 +62,21 @@ class VectorStore:
     deleting chunks by source file
 
     """
-    def __init__(self,supabase_url:str="",supabase_key:str="",table_name:str="chunks"):
-        self.supabase_url=supabase_url or settings.SUPABASE_URL
-        self.supabase_key=supabase_key or settings.SUPABASE_KEY
-        self.table_name=table_name
+    def __init__(self, supabase_url: str = "", supabase_key: str = "", table_name: str = "chunks"):
+        self.supabase_url = supabase_url or settings.SUPABASE_URL
+        self.supabase_key = supabase_key or settings.SUPABASE_KEY
+        self.table_name = table_name
         if not self.supabase_url or not self.supabase_key:
             raise ValueError("Supabase URL and Key must be provided")
 
-        # create Supabase client
-        self.client:Client=create_client(self.supabase_url,self.supabase_key)
+        self._client: Client = create_client(self.supabase_url, self.supabase_key)
         logger.info(
             f"VectorStore initialised — "
             f"table='{table_name}'"
         )
 
-    #Insert a single EmbeddedChunk into Supabase.
-    def _insert_chunk(self,chunk:EmbeddedChunk)->None:
-        (self.client
+    def _insert_chunk(self, chunk: EmbeddedChunk) -> None:
+        (self._client
             .table(self.table_name)
             .upsert({
                 "chunk_id"    : chunk.chunk_id,
@@ -93,23 +91,21 @@ class VectorStore:
                 "embedding"   : chunk.embedding,
             }).execute())
 
-    #Check if a chunk already exists in Supabase.
-    def _chunk_exists(self,chunk_id:str)->bool:
-        response=(
-            self.client
+    def _chunk_exists(self, chunk_id: str) -> bool:
+        response = (
+            self._client
             .table(self.table_name)
             .select("chunk_id")
-            .eq("chunk_id",chunk_id)
+            .eq("chunk_id", chunk_id)
             .execute()
         )
-        return len(response.data)>0
+        return len(response.data) > 0
 
-    #store a list of EmbeddedChunk objects in Supabase.
-    def add_chunk(self,chunks:list[EmbeddedChunk],skip_existing:bool=True)->int:
+    def add_chunk(self, chunks: List[EmbeddedChunk], skip_existing: bool = True) -> int:
         if not chunks:
             logger.warning("No chunks provided to add_chunks")
             return 0
-        stored_count=0
+        stored_count = 0
 
         for chunk in chunks:
             try:
@@ -119,7 +115,7 @@ class VectorStore:
                     )
                     continue
                 self._insert_chunk(chunk)
-                stored_count+=1
+                stored_count += 1
             except Exception as e:
                 logger.error(
                     f"Failed to store chunk '{chunk.chunk_id}': {e}"
@@ -129,3 +125,45 @@ class VectorStore:
             f"Stored {stored_count}/{len(chunks)} chunk(s) in Supabase"
         )
         return stored_count
+
+    def search(
+        self,
+        query_embedding: List[float],
+        top_k: int = 5,
+        doc_type_filter: Optional[str] = None,
+    ) -> List[SearchResult]:
+        # Find the most similar chunks to a query embedding. Uses cosine similarity via pgvector.
+        if not query_embedding:
+            raise ValueError("query_embedding cannot be empty")
+
+        try:
+            response = self._client.rpc(
+                "match_chunks", {
+                    "query_embedding": query_embedding,
+                    "match_count": top_k,
+                    "filter": {"doc_type": doc_type_filter} if doc_type_filter else {}
+                }
+            ).execute()
+
+            results = []
+            for row in response.data:
+                result = SearchResult(
+                    chunk_id     = row["chunk_id"],
+                    content      = row["content"],
+                    source       = row["source"],
+                    title        = row["title"],
+                    doc_type     = row["doc_type"],
+                    chunk_index  = row["chunk_index"],
+                    total_chunks = row["total_chunks"],
+                    token_count  = row["token_count"],
+                    metadata     = row["metadata"] or {},
+                    score        = row["similarity"],
+                )
+                results.append(result)
+
+            logger.info(f"Search returned {len(results)} result(s)")
+            return results
+
+        except Exception as e:
+            logger.error(f"Search failed: {e}")
+            raise
