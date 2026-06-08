@@ -167,3 +167,63 @@ class VectorStore:
         except Exception as e:
             logger.error(f"Search failed: {e}")
             raise
+
+
+
+
+    def delete_by_source(self, source: str) -> int:
+        try:
+            response = (
+                self._client
+                .table(self.table_name)
+                .delete()
+                .eq("source", source)
+                .execute()
+            )
+            deleted = len(response.data) if response.data else 0
+            logger.info(f"Deleted {deleted} chunk(s) for source '{source}'")
+            return deleted
+        except Exception as e:
+            logger.error(f"Failed to delete chunks: {e}")
+            raise
+
+
+    def get_stats(self) -> dict:
+        try:
+            total_response = (
+                self._client
+                .table(self.table_name)
+                .select("chunk_id", count="exact")
+                .execute()
+            )
+            total = total_response.count or 0
+
+            sources_response = (
+                self._client
+                .table(self.table_name)
+                .select("source")
+                .execute()
+            )
+            unique_sources = len(set(row["source"] for row in sources_response.data))
+
+            doc_type_response = (
+                self._client
+                .table(self.table_name)
+                .select("doc_type")
+                .execute()
+            )
+            doc_types: dict = {}
+            for row in doc_type_response.data:
+                dt = row["doc_type"]
+                doc_types[dt] = doc_types.get(dt, 0) + 1
+
+            return {
+                "total_chunks"   : total,
+                "unique_sources" : unique_sources,
+                "doc_types"      : doc_types,
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to get stats: {e}")
+            raise
+        
