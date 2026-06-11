@@ -226,4 +226,3 @@ class VectorStore:
         except Exception as e:
             logger.error(f"Failed to get stats: {e}")
             raise
-        

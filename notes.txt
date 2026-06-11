@@ -108,3 +108,85 @@ Supabase is an open-source Backend-as-a-Service (BaaS) built on top of PostgreSQ
 PostgreSQL database
 Vector database capabilities via pgvector
 pgvector is a PostgreSQL extension that allows you to store and search vector embeddings directly in your database.
+
+
+self.client:Client=create_client(self.supabase_url,self.supabase_key) 
+create connections to supabase_key
+
+
+querieng a chunkid from supabase
+
+def _chunk_exists(self,chunk_id:str)->bool:
+         response=(
+              self.client
+              .table(self.table_name)
+              .select("chunk_id")
+              .eq("chunk_id",chunk_id)
+              .execute()
+         )
+         return len(response.data)>0
+
+
+quering a function#
+
+            response = self._client.rpc(
+                "match_chunks", {
+                    "query_embedding": query_embedding,
+                    "match_count": top_k,
+                    "filter": {"doc_type": doc_type_filter} if doc_type_filter else {}
+                }
+            ).execute()
+
+
+Accessing values in a list of dataclass objects uses dot notation, not dict syntax:
+result.score        # correct  (dataclass attribute)
+result["score"]     # wrong    (dict key lookup — dataclasses are not dicts)
+
+
+
+
+
+calling class in a class
+
+class Searcher:
+
+    def __init__(
+        self,
+        embedder,        # Embedder instance
+        vector_store,    # VectorStore instance
+    ):
+        self._embedder     = Embedder()
+        self._vector_store = VectorStore()
+
+    # ── public ─────────────────────────────
+
+    def search(query, doc_type_filter)
+        # step 2 _embed_query
+        # step 3 _search_vector_store
+        # return results
+
+    # ── private ────────────────────────────
+    def _embed_query(query)
+        # call embedder.embed_query(query)
+
+    def _search_vector_store(query_embedding, doc_type_filter)
+        # call vector_store.search()
+
+
+
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+)
+
+retry                    → the decorator that adds retry behaviour
+stop_after_attempt(3)    → stop after 3 tries
+wait_exponential         → wait 1s then 2s then 4s between tries
+retry_if_exception_type  → only retry on specific errors
+
+
+latency        - How many seconds Claude took to respond.
+input_tokens   - How many tokens were sent TO Claude
+output_tokens  - How many tokens came back FROM Claude
