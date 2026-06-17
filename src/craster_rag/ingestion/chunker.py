@@ -67,7 +67,7 @@ class Chunker:
             f"chunk_overlap={chunk_overlap}"
         )
 
-    def chunk_document(self, documents: List[Document]) -> list[Chunk]:
+    def chunk_documents(self, documents: List[Document]) -> list[Chunk]:
         # Loops through every Document and chunks each one.
         if not documents:
             logger.warning("No documents provided to chunker")

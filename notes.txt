@@ -1,192 +1,149 @@
-python --version
-Python 3.11.9
-
-cd "C:\Users\YashwilKotian\OneDrive - craster.com\Desktop"
-
-mkdir craster-rag
-cd craster-rag
-
-python -m venv .venv
-
-create folders
-mkdir test or mkdir src/craster-rag/ingest
-
-type nul > src\craster_rag\ingestion\__init__.py
-type nul > src\craster_rag\__init__.py
-
-
-
-Simple version of base_loader
-from abc import ABC, abstractmethod
-
-
-# Base Chef Rules
-class PizzaChef(ABC):
-
-    @abstractmethod
-    def make_pizza(self):
-        pass
-
-    @abstractmethod
-    def check_ingredients(self):
-        pass
-
-
-# Cheese pizza chef
-class CheeseChef(PizzaChef):
-
-    def make_pizza(self):
-        print("Making cheese pizza")
-
-    def check_ingredients(self):
-        print("Checking cheese and dough")
-
-
-# Pepperoni pizza chef
-class PepperoniChef(PizzaChef):
-
-    def make_pizza(self):
-        print("Making pepperoni pizza")
-
-    def check_ingredients(self):
-        print("Checking pepperoni and dough")
-
-
-# Use chefs
-chef1 = CheeseChef()
-chef1.make_pizza()
-
-chef2 = PepperoniChef()
-chef2.check_ingredients()
-
-
-without __repr__, printing a document object will look like:
-<__main__.Document object at 0x000001F3>
-
-__repr__ gives it a readable string so print(doc) shows useful info instead of a memory address.
-
-
-What @abstractmethod Actually Means
-When you put @abstractmethod on a method, you're saying:
-# I am declaring this method EXISTS
-# but I am NOT writing what it does
-# Every class that inherits from me MUST write their own version of it
-
-
-tiktoken
-A library made by OpenAI that converts text into tokens — the same way AI models like Claude and GPT actually read text.
-
-
-from dataclasses import dataclass
-
-@dataclass
-class User:
-    name: str
-    age: int
-
-user = User(name="John", age=25)
-print(user)
-Automatic __init__()
-Automatic __repr__()
-Automatic __eq__()
-
-
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
-class Settings(BaseSettings):
-    database_url: str
-    api_key: str
-
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8"
-    )
-
-
-Supabase is an open-source Backend-as-a-Service (BaaS) built on top of PostgreSQL. It provides:
-
-PostgreSQL database
-Vector database capabilities via pgvector
-pgvector is a PostgreSQL extension that allows you to store and search vector embeddings directly in your database.
-
-
-self.client:Client=create_client(self.supabase_url,self.supabase_key) 
-create connections to supabase_key
-
-
-querieng a chunkid from supabase
-
-def _chunk_exists(self,chunk_id:str)->bool:
-         response=(
-              self.client
-              .table(self.table_name)
-              .select("chunk_id")
-              .eq("chunk_id",chunk_id)
-              .execute()
-         )
-         return len(response.data)>0
-
-
-quering a function#
-
-            response = self._client.rpc(
-                "match_chunks", {
-                    "query_embedding": query_embedding,
-                    "match_count": top_k,
-                    "filter": {"doc_type": doc_type_filter} if doc_type_filter else {}
-                }
-            ).execute()
-
-
-Accessing values in a list of dataclass objects uses dot notation, not dict syntax:
-result.score        # correct  (dataclass attribute)
-result["score"]     # wrong    (dict key lookup — dataclasses are not dicts)
-
-
-
-
-
-calling class in a class
-
-class Searcher:
-
-    def __init__(
-        self,
-        embedder,        # Embedder instance
-        vector_store,    # VectorStore instance
-    ):
-        self._embedder     = Embedder()
-        self._vector_store = VectorStore()
-
-    # ── public ─────────────────────────────
-
-    def search(query, doc_type_filter)
-        # step 2 _embed_query
-        # step 3 _search_vector_store
-        # return results
-
-    # ── private ────────────────────────────
-    def _embed_query(query)
-        # call embedder.embed_query(query)
-
-    def _search_vector_store(query_embedding, doc_type_filter)
-        # call vector_store.search()
-
-
-
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_exponential,
-    retry_if_exception_type,
-)
-
-retry                    → the decorator that adds retry behaviour
-stop_after_attempt(3)    → stop after 3 tries
-wait_exponential         → wait 1s then 2s then 4s between tries
-retry_if_exception_type  → only retry on specific errors
-
-
-latency        - How many seconds Claude took to respond.
-input_tokens   - How many tokens were sent TO Claude
-output_tokens  - How many tokens came back FROM Claude
+A Multi-Agent RAG system for Craster HR policies
+that answers employee questions accurately
+with verified citations and page numbers
+built to production standards
+
+
+LANGUAGE        Python 3.11
+
+FRAMEWORK       LangChain 0.3.7    document loading
+                                   text splitting
+                                   prompt templates
+                                   retrieval chains
+
+
+ORCHESTRATION   LangGraph 0.2.28   multi agent pipeline
+                                   state machine
+                                   conditional routing
+
+
+LLM             Claude Sonnet      answer generation
+                                   routing decisions
+                                   context evaluation
+
+EMBEDDINGS      BAAI/bge-base      free local model
+                en-v1.5            768 dimensions
+                                   no API cost
+
+
+VECTOR DB       Supabase           pgvector extension
+                                   persistent storage
+                                   scales to millions
+
+
+MONITORING      Langfuse           every query logged
+                MLflow             experiment tracking
+
+
+API             FastAPI            production grade
+                                   async endpoints
+
+FRONTEND        React              chat interface
+                                   built as artifact
+
+
+CONTAINERISE    Docker             consistent environment
+CI/CD           GitHub Actions     automated testing
+                                   automated deployment
+
+
+STRUCTURE
+
+craster-rag/
+│
+├── src/
+│   └── craster_rag/
+│       │
+│       ├── ingestion/
+│       │   ├── __init__.py
+│       │   ├── base_loader.py
+│       │   ├── pdf_loader.py
+│       │   ├── loader_factory.py
+│       │   ├── chunker.py
+│       │   └── embedder.py
+│       │
+│       ├── agents/
+│       │   ├── __init__.py
+│       │   ├── state.py
+│       │   ├── router_agent.py
+│       │   ├── retriever_agent.py
+│       │   ├── context_evaluator.py
+│       │   ├── answer_generator.py
+│       │   ├── citation_verifier.py
+│       │   └── graph.py
+│       │
+│       ├── retrieval/
+│       │   └── vector_store.py
+│       │
+│       ├── api/
+│       │   ├── __init__.py
+│       │   ├── app.py
+│       │   ├── routes/
+│       │   │   ├── __init__.py
+│       │   │   ├── chat.py
+│       │   │   └── admin.py
+│       │   ├── middleware/
+│       │   │   ├── __init__.py
+│       │   │   └── rate_limiter.py
+│       │   └── models/
+│       │       ├── __init__.py
+│       │       ├── request.py
+│       │       └── response.py
+│       │
+│       └── monitoring/
+│           ├── __init__.py
+│           ├── langfuse_client.py
+│           └── mlflow_client.py
+│
+├── tests/
+│   ├── __init__.py
+│   ├── conftest.py
+│   ├── unit/
+│   │   ├── __init__.py
+│   │   ├── test_pdf_loader.py
+│   │   ├── test_chunker.py
+│   │   └── test_agents.py
+│   └── integration/
+│       ├── __init__.py
+│       └── test_rag_pipeline.py
+│
+├── scripts/
+│   ├── ingest.py
+│   └── reindex.py
+│
+├── frontend/
+│   ├── index.html
+│   ├── style.css
+│   └── app.js
+│
+├── docker/
+│   ├── Dockerfile
+│   ├── Dockerfile.dev
+│   └── docker-compose.yml
+│
+├── .github/
+│   └── workflows/
+│       ├── test.yml
+│       ├── lint.yml
+│       └── deploy.yml
+│
+├── mlflow/
+│   └── experiments/
+│
+├── data/
+│   └── documents/
+│       └── hr_policy/
+│           ├── Lone Worker Policy.pdf
+│           └── ... all 50 PDFs
+│
+├── logs/
+│
+├── config.py
+├── pyproject.toml
+├── requirements.txt
+├── .env
+├── .env.example
+├── .gitignore
+├── Makefile
+├── .pre-commit-config.yaml
+└── README.md

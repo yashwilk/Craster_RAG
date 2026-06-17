@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 import torch
 from sentence_transformers import SentenceTransformer
-from craster_rag.ingestion.chuker import Chunk
+from craster_rag.ingestion.chunker import Chunk
 
 
 logger = logging.getLogger(__name__)

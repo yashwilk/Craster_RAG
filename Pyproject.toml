@@ -1,15 +1,17 @@
 [build-system]
 requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
-
+build-backend = "setuptools.build_meta"
+ 
 [project]
 name = "craster-rag"
 version = "0.1.0"
+description = "Production RAG chatbot for Craster internal knowledge base"
 requires-python = ">=3.11"
-
+ 
 [tool.setuptools.packages.find]
 where = ["src"]
-
+ 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+ 

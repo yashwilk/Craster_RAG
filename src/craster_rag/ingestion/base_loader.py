@@ -54,3 +54,26 @@ class BaseLoader(ABC):
         Used by file-based loaders (TXT, PDF, Word).
         """
         return Path(path).exists()
+
+
+"""
+Class Document
+|
+define datype
+|
+_post_init_ - to check doc_id
+|
+__repr__ - to se how each file looks like and capture all info
+|
+base loader
+|
+@abstractmethod load - dont define anything here. returns list[Document] 
+|
+@abstractmethod valid - dont define anything here 
+|
+_log_loaded- - to to log the length of each file in folder (applicable for all)
+|
+is_valid_path - to check if file path is valid (applicable for all)
+
+
+"""
