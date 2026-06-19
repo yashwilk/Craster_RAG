@@ -1,4 +1,9 @@
-"""Splits Document objects into smaller Chunk objects.
+"""
+
+OLD CODE- MANUAL CHUNKING
+
+
+Splits Document objects into smaller Chunk objects.
 
 Chunking strategy:
 1) Split by paragraphs first.
@@ -6,7 +11,7 @@ Chunking strategy:
 3) Add overlap between chunks
 4) If single paragraph exceeds chunk_size, split by sentences
 5) Add overlap between chunks so context is not lost at boundaries.
-"""
+
 
 import logging
 import re
@@ -31,12 +36,12 @@ class Chunk:
     metadata:dict=field(default_factory=dict)
     chunk_id:Optional[str]=None
 
-    """A chunk is a section of a document.It contains hundreds of tokens
-    chunk_size = 500 words
-    "Acumatica" = 1 word but 3 tokens
+    #A chunk is a section of a document.It contains hundreds of tokens
+    #chunk_size = 500 words
+    #"Acumatica" = 1 word but 3 tokens
+    #
+    #500 words might actually be 800 tokens
 
-    500 words might actually be 800 tokens
-    """
 
     def __post_init__(self):
         if self.chunk_id is None:
@@ -91,10 +96,10 @@ class Chunker:
 
     def chunk_single_document(self,document:Document)->List[Chunk]:
         #        Split a single Document into Chunks.
-        """Strategy:
+        #Strategy:
 
-            2. Group paragraphs into chunks up to chunk_size
-            3. Add overlap between consecutive chunks"""
+        #    2. Group paragraphs into chunks up to chunk_size
+        #    3. Add overlap between consecutive chunks
 
         if not document.content.strip():
             logger.warning(f"Empty document skipped: '{document.title}'")
@@ -211,3 +216,165 @@ class Chunker:
             return text
         last_n_token=tokens[-n:]
         return self.tokenizer.decode(last_n_token)
+"""
+
+
+
+"""NEW CODE-LANGCHAIN"""
+"""Splits Document objects into Chunk objects using LangChain RecursiveCharacterTextSplitter.never splits mid word or mid sentence
+RecursiveCharacterTextSplitter strategy:
+    1. try splitting on paragraph breaks first
+    2. if still too big split on line breaks
+    3. if still too big split on spaces
+    4. last resort split on characters
+
+"""
+
+import logging
+from dataclasses import dataclass, field
+from typing import Optional
+
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+from craster_rag.ingestion.base_loader import Document
+
+# logger
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class Chunk:
+    content      : str
+    source       : str
+    title        : str
+    category     : str
+    doc_type     : str
+    chunk_index  : int
+    total_chunks : int
+    token_count  : int
+    page_number  : int                   = 0
+    metadata     : dict                  = field(default_factory=dict)
+    chunk_id     : Optional[str]         = None
+
+    def __post_init__(self):
+        """Auto generate chunk_id from source and chunk_index."""
+        if self.chunk_id is None:
+            self.chunk_id = f"{self.source}::chunk_{self.chunk_index}"
+
+    def __repr__(self) -> str:
+        return (
+            f"Chunk("
+            f"title='{self.title}', "
+            f"category='{self.category}', "
+            f"page={self.page_number}, "
+            f"chunk={self.chunk_index + 1}/{self.total_chunks}, "
+            f"tokens={self.token_count})"
+        )
+
+class Chunker:
+    """ LangChain measures in CHARACTERS not tokens
+     chunk_size    : max characters per chunk (default 1000)
+       1000 characters ≈ 250 tokens
+     chunk_overlap : overlap between chunks (default 100)
+    """
+
+    def __init__(self, chunk_size:int=1000, chunk_overlap:int=100):
+        if chunk_overlap >= chunk_size:
+            raise ValueError(
+                f"chunk_overlap ({chunk_overlap}) must be "
+                f"less than chunk_size ({chunk_size})"
+            )
+
+        self.chunk_size    = chunk_size
+        self.chunk_overlap = chunk_overlap
+
+        self.splitter = RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            separators=["\n\n", "\n", " ", ""],
+            length_function=len,       # measure by characters
+            is_separator_regex=False,
+        )
+        logger.info(
+            f"Chunker initialised — "
+            f"chunk_size={chunk_size}, "
+            f"chunk_overlap={chunk_overlap}"
+        )
+
+
+    def chunk_documents(
+        self,
+        documents: list[Document],
+    ) -> list[Chunk]:
+
+        all_chunks: list[Chunk] = []
+
+        for document in documents:
+            chunks = self._chunk_single_document(document)
+            all_chunks.extend(chunks)
+
+        logger.info(
+            f"Chunking complete — "
+            f"{len(documents)} document(s) → "
+            f"{len(all_chunks)} total chunk(s)"
+        )
+        return all_chunks
+
+
+    def _chunk_single_document(self, document: Document) -> list[Chunk]:
+        if not document.content.strip():
+            logger.warning(
+                f"Empty document skipped: '{document.title}'"
+            )
+            return []
+        # split content using LangChain
+        text_chunks = self.splitter.split_text(document.content)
+        #sample text_chunks= ["aaaaaaaaa bbbbbbbb","cccccccc","sssssss bbbb"]
+
+        if not text_chunks:
+            logger.warning(
+                f"No chunks produced for: '{document.title}'"
+            )
+            return []
+
+        # get metadata from document
+        category    = document.metadata.get("category",    "general")
+        page_number = document.metadata.get("page_number", 0)
+
+        total = len(text_chunks)
+        chunks = []
+        for index, text in enumerate(text_chunks):
+            if not text.strip():
+                continue
+
+            chunk = Chunk(
+                content      = text.strip(),
+                source       = document.source,
+                title        = document.title,
+                category     = category,
+                doc_type     = document.doc_type,
+                chunk_index  = index,
+                total_chunks = total,
+                token_count  = self._estimate_tokens(text),
+                page_number  = page_number,
+                metadata     = {
+                    **document.metadata,
+                    "chunk_index"  : index,
+                    "total_chunks" : total,
+                },
+            )
+            chunks.append(chunk)
+
+        logger.debug(
+            f"'{document.title}' page {page_number} "
+            f"→ {len(chunks)} chunk(s)"
+        )
+        return chunks
+
+
+    def _estimate_tokens(self, text: str) -> int:
+        """ 1 token ≈ 4 characters for English text
+
+            Estimated token count as integer
+        """
+        return len(text) // 4
