@@ -1,0 +1,48 @@
+# ── Dockerfile.dev ──────────────────────────────────────
+# Development image with hot reload and debug tools
+#
+# Build: docker build -f docker/Dockerfile.dev -t craster-rag:dev .
+# Run:   docker compose -f docker/docker-compose.yml up
+
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/src \
+    ENVIRONMENT=local \
+    DEBUG=true
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install all dependencies including dev tools
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copy source code
+# In dev, this is overridden by volume mount
+# so code changes reflect immediately without rebuild
+COPY src/ ./src/
+COPY config.py .
+COPY pyproject.toml .
+
+RUN pip install --no-cache-dir -e ".[dev]"
+
+# Create directories
+RUN mkdir -p data/documents/procedures logs mlflow/experiments
+
+EXPOSE 8000
+
+# Development server with hot reload
+# --reload watches for file changes and restarts automatically
+CMD ["uvicorn", "craster_rag.api.app:app", \
+     "--host", "0.0.0.0", \
+     "--port", "8000", \
+     "--reload"]

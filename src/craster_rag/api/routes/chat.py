@@ -24,6 +24,9 @@ Response:
 
 
 import logging
+import uuid
+
+
 from slowapi import Limiter
 from fastapi import APIRouter, Request, HTTPException
 from slowapi.util import get_remote_address
@@ -32,6 +35,9 @@ from slowapi.util import get_remote_address
 from craster_rag.agents.graph import run_pipeline
 from craster_rag.api.models.request import ChatRequest
 from craster_rag.api.models.response import ChatResponse, CitationResponse
+
+from craster_rag.monitoring.langfuse_client import monitor
+from config import settings
 
 
 # logger
@@ -73,6 +79,7 @@ async def chat(
     Returns:
         ChatResponse with answer citations and metadata
     """
+    session_id = str(uuid.uuid4())
 
     logger.info(
         f"Chat request — "
@@ -80,41 +87,80 @@ async def chat(
         f"question='{request.question[:50]}...'"
     )
 
+    with monitor.trace(
+        name       = "hr_policy_query",
+        input_data = {"question": request.question},
+        user_id    = request.user_id,
+        session_id = session_id,
+        tags       = ["rag", "hr-policy", settings.environment.value],
+        metadata   = {
+            "environment"      : settings.environment.value,
+            "app_version"      : settings.app_version,
+        },
+    ) as trace:
 
-    try:
-        # run full multi-agent pipeline
-        result = run_pipeline(request.question)
+        try:
+            # run full multi-agent pipeline
+            result = run_pipeline(request.question)
 
-        # build citations response
-        citations = [
-            CitationResponse(**citation)
-            for citation in result.get("citations", [])
-        ]
+            # build citations response
+            citations = [
+                CitationResponse(**citation)
+                for citation in result.get("citations", [])
+            ]
 
+            monitor.score(
+                name    = "context_relevance",
+                value   = result.get("context_score", 0.0),
+                comment = f"Category: {result.get('category', 'unknown')}",
+            )
 
+            monitor.score(
+                name    = "can_answer",
+                value   = 1.0 if result.get("can_answer") else 0.0,
+                comment = f"Confidence: {result.get('confidence_level', 'none')}",
+            )
 
-        # build and return response
-        return ChatResponse(
-            answer           = result.get("answer", ""),
-            final_answer     = result.get("final_answer", ""),
-            sources          = result.get("sources", []),
-            citations        = citations,
-            category         = result.get("category", ""),
-            confidence_level = result.get("confidence_level", "none"),
-            can_answer       = result.get("can_answer", False),
-            question         = request.question,
-        )
+            # update trace with final output
+            if trace:
+                trace.update(
+                    output = {
+                        "answer"           : result.get("answer", ""),
+                        "can_answer"       : result.get("can_answer"),
+                        "confidence_level" : result.get("confidence_level"),
+                        "category"         : result.get("category"),
+                        "citations_count"  : len(citations),
+                    }
+                )
 
-    except ValueError as e:
-        logger.warning(f"Invalid request: {e}")
-        raise HTTPException(
-            status_code = 400,
-            detail      = str(e),
-        )
+            monitor.flush()
 
-    except Exception as e:
-        logger.error(f"Pipeline error: {e}")
-        raise HTTPException(
-            status_code = 500,
-            detail      = "Internal server error. Please try again.",
-        )
+            return ChatResponse(
+                answer           = result.get("answer", ""),
+                final_answer     = result.get("final_answer", ""),
+                sources          = result.get("sources", []),
+                citations        = citations,
+                category         = result.get("category", ""),
+                confidence_level = result.get("confidence_level", "none"),
+                can_answer       = result.get("can_answer", False),
+                question         = request.question,
+            )
+
+        except ValueError as e:
+            logger.warning(f"Invalid request: {e}")
+            raise HTTPException(status_code=400, detail=str(e))
+
+        except Exception as e:
+            # log error to Langfuse trace
+            if trace:
+                trace.update(
+                    level          = "ERROR",
+                    status_message = str(e),
+                )
+            monitor.flush()
+
+            logger.error(f"Pipeline error: {e}")
+            raise HTTPException(
+                status_code = 500,
+                detail      = "Internal server error. Please try again.",
+            )

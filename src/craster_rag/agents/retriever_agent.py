@@ -3,22 +3,36 @@ using hybrid search (vector + BM25)."""
 
 
 import logging
- 
+
 from craster_rag.agents.state import RAGState
 from craster_rag.ingestion.embedder import Embedder
 from craster_rag.retrieval.vector_store import VectorStore
 from config import settings
- 
+
 # logger
 logger = logging.getLogger(__name__)
 
 
-# avoids reloading embedding model on every query
-_embedder     = Embedder(
-    model_name = settings.embedding_model,
-    batch_size = settings.embedding_batch_size,
-)
-_vector_store = VectorStore()
+# lazy-initialized singletons — avoids connecting to Supabase at import time
+_embedder: "Embedder | None" = None
+_vector_store: "VectorStore | None" = None
+
+
+def _get_embedder() -> Embedder:
+    global _embedder
+    if _embedder is None:
+        _embedder = Embedder(
+            model_name=settings.embedding_model,
+            batch_size=settings.embedding_batch_size,
+        )
+    return _embedder
+
+
+def _get_vector_store() -> VectorStore:
+    global _vector_store
+    if _vector_store is None:
+        _vector_store = VectorStore()
+    return _vector_store
 
 
 def _retrieve_chunks(
@@ -27,11 +41,13 @@ def _retrieve_chunks(
 ) -> list:
 
     """Run hybrid search and return top chunks."""
+    embedder      = _get_embedder()
+    vector_store  = _get_vector_store()
     # embed the query
-    query_embedding = _embedder.embed_query(query)
+    query_embedding = embedder.embed_query(query)
     if settings.enable_hybrid_search:
         # hybrid search combines vector + BM25
-        chunks = _vector_store.hybrid_search(
+        chunks = vector_store.hybrid_search(
             query_embedding=query_embedding,
             query_text=query,
             top_k=settings.top_k_results,
@@ -39,7 +55,7 @@ def _retrieve_chunks(
         )
     else:
         # vector only search
-        chunks = _vector_store.search(
+        chunks = vector_store.search(
             query_embedding = query_embedding,
             top_k           = settings.top_k_results,
             category        = category,

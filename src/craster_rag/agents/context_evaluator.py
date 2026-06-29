@@ -95,13 +95,13 @@ def context_evaluator_agent(state:RAGState)->RAGState:
 
 
 def _calculate_context_score(chunks:list,category:str)->float:
-  """ Scoring factors:
+    """ Scoring factors:
         1. no chunks retrieved          → 0.0
         2. average hybrid similarity    → main factor
         3. proportion above threshold   → quality factor
         4. category match bonus         → accuracy bonus"""
 
-      # no chunks retrieved
+    # no chunks retrieved
     if not chunks:
         logger.warning("Evaluator: no chunks retrieved")
         return 0.0

@@ -32,7 +32,7 @@ from craster_rag.agents.context_evaluator import (
 )
 from craster_rag.agents.answer_generator import answer_generator_agent
 from craster_rag.agents.citation_verifier import citation_verifier_agent
-
+from craster_rag.monitoring.langfuse_client import get_langfuse_handler
 
 # logger
 logger = logging.getLogger(__name__)
@@ -89,7 +89,10 @@ def _build_graph() -> StateGraph:
 # built once when module loads
 _graph = _build_graph()
 
-
+# Langfuse handler — None if not configured
+_langfuse_handler = get_langfuse_handler()
+ 
+ 
 def run_pipeline(question: str) -> RAGState:
     """Flow:
         router → rewriter → retriever → evaluator
@@ -97,30 +100,39 @@ def run_pipeline(question: str) -> RAGState:
 
     if not question.strip():
         raise ValueError("Question cannot be empty")
-
-    logger.info(f"Pipeline: starting for question '{question[:50]}...'")
-
-    # create initial state
+ 
+    logger.info(
+        f"Pipeline: starting for '{question[:50]}...'"
+    )
+ 
     initial_state = create_initial_state(question)
+ 
     try:
+        # build invoke config
+        # add Langfuse callback if available
+        invoke_config = {}
+        if _langfuse_handler:
+            invoke_config["callbacks"] = [_langfuse_handler]
+ 
         # run the graph
-        # LangGraph handles all routing automatically
-        final_state = _graph.invoke(initial_state)
-
+        final_state = _graph.invoke(
+            initial_state,
+            config=invoke_config if invoke_config else None,
+        )
+ 
         logger.info(
-            f"Pipeline: complete — "
+            f"Pipeline complete — "
             f"category={final_state.get('category')}, "
             f"confidence={final_state.get('confidence_level')}, "
             f"can_answer={final_state.get('can_answer')}"
         )
-
+ 
         return final_state
-
+ 
     except Exception as e:
         logger.error(f"Pipeline failed: {e}")
-
+ 
         # return safe error state
-        # never let pipeline crash the API
         return {
             **initial_state,
             "can_answer"      : False,
