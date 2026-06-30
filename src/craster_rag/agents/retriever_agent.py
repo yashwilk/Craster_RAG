@@ -13,10 +13,11 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 
-# lazy-initialized singletons — avoids connecting to Supabase at import time
+# avoids reloading embedding model on every query
 _embedder: "Embedder | None" = None
 _vector_store: "VectorStore | None" = None
-
+ 
+ 
 
 def _get_embedder() -> Embedder:
     global _embedder
@@ -45,19 +46,26 @@ def _retrieve_chunks(
     vector_store  = _get_vector_store()
     # embed the query
     query_embedding = embedder.embed_query(query)
+
+    fetch_k = (
+        settings.top_k_results * 3
+        if settings.enable_reranking
+        else settings.top_k_results
+    )
+ 
     if settings.enable_hybrid_search:
         # hybrid search combines vector + BM25
         chunks = vector_store.hybrid_search(
-            query_embedding=query_embedding,
-            query_text=query,
-            top_k=settings.top_k_results,
-            category=category
+            query_embedding = query_embedding,
+            query_text      = query,
+            top_k           = fetch_k,
+            category        = category,
         )
     else:
         # vector only search
         chunks = vector_store.search(
             query_embedding = query_embedding,
-            top_k           = settings.top_k_results,
+            top_k           = fetch_k,
             category        = category,
         )
  
