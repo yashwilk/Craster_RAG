@@ -136,8 +136,17 @@ class Settings(BaseSettings):
     log_level  : str = "INFO"
     log_format : str = "json"
 
+    # ── Ollama (local free models) ──────────────────────
+    ollama_base_url : str = "http://localhost:11434"
+    ollama_model    : str = "qwen2.5:7b"
+
+    # ── Caching (Redis) ──────────────────────────────────
+    redis_url         : str  = "redis://localhost:6379/0"
+    cache_ttl_seconds : int  = 86400   # 24 hours
+    enable_caching    : bool = True
+
     # ── Feature Flags ───────────────────────────────────
-    enable_reranking   : bool = False
+    enable_reranking    : bool = True   # cross-encoder rerank, free local model
     enable_monitoring  : bool = True
     enable_hybrid_search: bool = True
 

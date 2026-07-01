@@ -1,0 +1,141 @@
+# docker-compose.yml
+# ───────────────────
+# Runs all services for Craster HR Policy RAG chatbot:
+#   app     → FastAPI multi-agent RAG API + frontend
+#   mlflow  → experiment tracking UI
+#   ollama  → local Qwen model for query rewriting (free)
+#
+# Usage:
+#   make docker-run       start all services
+#   make docker-down      stop all services
+#   make docker-logs      follow logs
+
+version: "3.9"
+
+services:
+
+  # ── Main Application ──────────────────────────────────
+  app:
+    build:
+      context   : ..
+      dockerfile: docker/Dockerfile.dev
+    container_name: craster-rag-app
+    ports:
+      - "8000:8000"
+    env_file:
+      - ../.env
+    environment:
+      # override Ollama URL to use Docker service name
+      # instead of localhost when running in containers
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      # hot reload — code changes reflect immediately
+      - ../src:/app/src
+      - ../config.py:/app/config.py
+      - ../frontend:/app/frontend
+
+      # persist data across container restarts
+      - ../data:/app/data
+      - ../logs:/app/logs
+      - ../mlflow:/app/mlflow
+
+    depends_on:
+      mlflow:
+        condition: service_started
+      ollama:
+        condition: service_started
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import httpx; httpx.get('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ── MLflow Tracking Server ────────────────────────────
+  mlflow:
+    image: python:3.11-slim
+    container_name: craster-rag-mlflow
+    ports:
+      - "5000:5000"
+    volumes:
+      - ../mlflow:/mlflow
+    command: >
+      sh -c "pip install mlflow --quiet &&
+             mlflow server
+             --host 0.0.0.0
+             --port 5000
+             --backend-store-uri /mlflow/experiments
+             --default-artifact-root /mlflow/artifacts"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request;
+              urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ── Ollama (local free Qwen model) ────────────────────
+  # used by query_rewriter.py for free query rewriting
+  # avoids spending Claude tokens on rewriting
+  ollama:
+    image: ollama/ollama:latest
+    container_name: craster-rag-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      # persist downloaded models across restarts
+      - ollama_models:/root/.ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    # GPU support — uncomment if you have NVIDIA GPU
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # ── Redis (answer caching) ────────────────────────────
+  # used by cache_client.py to cache repeated questions
+  # avoids re-running the full agent pipeline and
+  # spending Claude tokens on identical questions
+  redis:
+    image: redis:7-alpine
+    container_name: craster-rag-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+# ── Named Volumes ───────────────────────────────────────
+volumes:
+  ollama_models:
+    name: craster-rag-ollama-models
+  redis_data:
+    name: craster-rag-redis-data
+
+# ── Network ──────────────────────────────────────────────
+networks:
+  default:
+    name: craster-rag-network

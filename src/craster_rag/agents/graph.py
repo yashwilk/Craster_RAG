@@ -25,7 +25,7 @@ from craster_rag.agents.state import RAGState, create_initial_state
 from craster_rag.agents.router_agent import router_agent
 from craster_rag.agents.query_rewriter import query_rewriter_agent
 from craster_rag.agents.retriever_agent import retriever_agent
-
+from craster_rag.agents.reranker import reranker_agent
 from craster_rag.agents.context_evaluator import (
     context_evaluator_agent,
     should_retry,
@@ -33,6 +33,8 @@ from craster_rag.agents.context_evaluator import (
 from craster_rag.agents.answer_generator import answer_generator_agent
 from craster_rag.agents.citation_verifier import citation_verifier_agent
 from craster_rag.monitoring.langfuse_client import get_langfuse_handler
+from craster_rag.cache.cache_client import cache
+from config import settings
 
 # logger
 logger = logging.getLogger(__name__)
@@ -48,6 +50,7 @@ def _build_graph() -> StateGraph:
     graph.add_node("router",     router_agent)
     graph.add_node("rewriter",   query_rewriter_agent)
     graph.add_node("retriever",  retriever_agent)
+    graph.add_node("reranker",  reranker_agent)
     graph.add_node("evaluator",  context_evaluator_agent)
     graph.add_node("generator",  answer_generator_agent)
     graph.add_node("verifier",   citation_verifier_agent)
@@ -60,7 +63,8 @@ def _build_graph() -> StateGraph:
     # router → rewriter → retriever → evaluator
     graph.add_edge("router",    "rewriter")
     graph.add_edge("rewriter",  "retriever")
-    graph.add_edge("retriever", "evaluator")
+    graph.add_edge("retriever", "reranker")
+    graph.add_edge("reranker",  "evaluator")
 
     # evaluator has conditional routing
     # should_retry() decides which node to go to next
@@ -104,7 +108,14 @@ def run_pipeline(question: str) -> RAGState:
     logger.info(
         f"Pipeline: starting for '{question[:50]}...'"
     )
- 
+
+    # ── Cache check — before any agent runs ─────────────
+    cached_result = cache.get(question)
+    if cached_result is not None:
+        logger.info(f"Pipeline: cache hit for '{question[:50]}...'")
+        initial_state = create_initial_state(question)
+        return {**initial_state, **cached_result}
+
     initial_state = create_initial_state(question)
  
     try:
@@ -127,7 +138,10 @@ def run_pipeline(question: str) -> RAGState:
             f"can_answer={final_state.get('can_answer')}"
         )
  
+        cache.set(question, final_state)
         return final_state
+    
+
  
     except Exception as e:
         logger.error(f"Pipeline failed: {e}")
