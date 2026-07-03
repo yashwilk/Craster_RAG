@@ -22,6 +22,7 @@ import logging
 from langgraph.graph import StateGraph, END
 
 from craster_rag.agents.state import RAGState, create_initial_state
+from craster_rag.agents.guard_agent import guard_agent
 from craster_rag.agents.router_agent import router_agent
 from craster_rag.agents.query_rewriter import query_rewriter_agent
 from craster_rag.agents.retriever_agent import retriever_agent
@@ -40,6 +41,15 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 
+
+
+def _guard_routing(state: RAGState) -> str:
+    if state.get("can_answer") is False:
+        return "blocked"
+    return "continue"
+
+
+
 def _build_graph() -> StateGraph:
 
     """Build and compile the LangGraph pipeline. Called once at module level. Returns compiled graph ready to run."""
@@ -47,6 +57,7 @@ def _build_graph() -> StateGraph:
     graph = StateGraph(RAGState)
 
     # ── Add nodes ──────────────────────────────────────
+    graph.add_node("guard",     guard_agent)
     graph.add_node("router",     router_agent)
     graph.add_node("rewriter",   query_rewriter_agent)
     graph.add_node("retriever",  retriever_agent)
@@ -57,7 +68,16 @@ def _build_graph() -> StateGraph:
 
 
     # entry point
-    graph.set_entry_point("router")
+    graph.set_entry_point("guard")
+    graph.add_conditional_edges(
+        "guard",
+        _guard_routing,
+        {
+            "continue"  : "router",
+            "blocked"   : "verifier",
+        }
+    )
+ 
 
 
     # router → rewriter → retriever → evaluator
