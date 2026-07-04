@@ -45,7 +45,9 @@ app.add_middleware(
 # ── Routes ─────────────────────────────────────────────
 app.include_router(chat.router)
 app.include_router(admin.router)
- # ── Startup event ──────────────────────────────────────
+
+
+# ── Startup event ──────────────────────────────────────
 @app.on_event("startup")
 async def startup():
     """Log app startup."""
@@ -54,7 +56,6 @@ async def startup():
         f"version={settings.app_version}, "
         f"environment={settings.environment.value}"
     )
- 
  
 # ── Root endpoint ──────────────────────────────────────
 @app.get("/")

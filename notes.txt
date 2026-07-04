@@ -147,3 +147,536 @@ craster-rag/
 ├── Makefile
 ├── .pre-commit-config.yaml
 └── README.md
+
+
+
+
+User Question
+      ↓
+┌─────────────────────────────────────────┐
+│  AGENT 1 — ROUTER                       │
+│  classifies category                    │
+│  health_safety / leave_family / etc     │
+└─────────────────────────────────────────┘
+      ↓
+┌─────────────────────────────────────────┐
+│  AGENT 2 — QUERY REWRITER               │  
+│  rewrites vague question                │
+│  into better search query               │
+└─────────────────────────────────────────┘
+      ↓
+┌─────────────────────────────────────────┐
+│  AGENT 3 — RETRIEVER                    │
+│  HYBRID search (BM25 + Vector)          │ 
+│  filtered by category                   │
+│  returns top 5 chunks                   │
+└─────────────────────────────────────────┘
+      ↓
+┌─────────────────────────────────────────┐
+│  AGENT 4 — CONTEXT EVALUATOR            │
+│  scores context quality                 │  
+│  confidence 0.0 - 1.0                   │
+│                                         │
+│  > 0.8  → generate answer               │
+│  0.5-0.8→ generate with caveat          │
+│  < 0.5  → retry or refuse              │
+└─────────────────────────────────────────┘
+      ↓
+┌─────────────────────────────────────────┐
+│  AGENT 5 — ANSWER GENERATOR             │
+│  generates answer                       │
+│  includes confidence level              │
+└─────────────────────────────────────────┘
+      ↓
+┌─────────────────────────────────────────┐
+│  AGENT 6 — CITATION VERIFIER            │
+│  verifies every claim                   │
+│  adds page numbers                      │
+│  formats sources                        │
+└─────────────────────────────────────────┘
+      ↓
+Final Answer + Sources + Page Numbers
++ Confidence Score
+
+
+
+pydantic_setting-BaseSettings is used for loading and validating application configuration from environment variables, while SettingsConfigDict is used to configure how those settings are loaded, such as from a .env file. This improves security and maintainability.
+
+
+
+Ollama
+
+import requests
+from typing import Generator, Optional
+
+
+class OllamaClient:
+    def __init__(
+        self,
+        base_url: str = "http://localhost:11434",
+        model: str = "qwen2.5:7b",
+        embedding_model: str = "nomic-embed-text",
+    ):
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.embedding_model = embedding_model
+
+    # ── Health Check ─────────────────────────────
+
+    def is_running(self) -> bool:
+        try:
+            response = requests.get(
+                f"{self.base_url}/api/tags",
+                timeout=3,
+            )
+            return response.status_code == 200
+        except requests.exceptions.RequestException:
+            return False
+
+    # ── Chat API ─────────────────────────────────
+
+    def chat(
+        self,
+        messages: list[dict],
+        temperature: float = 0.1,
+        num_predict: int = 500,
+    ) -> str:
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "stream": False,
+            "options": {
+                "temperature": temperature,
+                "num_predict": num_predict,
+            },
+        }
+
+        response = requests.post(
+            f"{self.base_url}/api/chat",
+            json=payload,
+            timeout=60,
+        )
+
+        response.raise_for_status()
+        return response.json()["message"]["content"].strip()
+
+
+# ── Example Usage ───────────────────────────────
+
+if __name__ == "__main__":
+    ollama = OllamaClient(
+        model="qwen2.5:7b",
+        embedding_model="nomic-embed-text",
+    )
+
+    if not ollama.is_running():
+        print("Ollama is not running. Start it with: ollama serve")
+        exit()
+
+    prompt = """
+    Rewrite this question as a search query.
+
+    Question: what about my leave?
+    Query:
+    """
+
+    result = ollama.generate(prompt)
+    print("Generated Query:", result)
+
+    messages = [
+        {"role": "system", "content": "You are a helpful HR assistant."},
+        {"role": "user", "content": "Can I work from home?"},
+    ]
+
+    answer = ollama.chat(messages)
+    print("Chat Answer:", answer)
+
+    embedding = ollama.embed("annual leave policy")
+    print("Embedding length:", len(embedding))
+
+
+
+
+
+
+
+┌─────────────────────────────────────────┐
+│  app container                          │
+│  FastAPI + agents + frontend            │
+│  port 8000                              │
+└──────────┬──────────────────┬───────────┘
+           │                  │
+           ▼                  ▼
+┌──────────────────┐  ┌──────────────────┐
+│  mlflow container│  │  ollama container│
+│  experiment UI   │  │  Qwen model      │
+│  port 5000       │  │  port 11434      │
+└──────────────────┘  └──────────────────┘
+
+
+
+Employee A asks: "How much maternity leave do I get?"
+        ↓
+cache MISS → full pipeline runs (~2-3s, Claude tokens spent)
+        ↓
+result cached for 24 hours
+
+Employee B asks the same question (any time within 24h):
+        ↓
+cache HIT → instant return, zero Claude tokens, zero agent calls
+
+
+
+
+Redis
+Redis = in-memory data structure server for ultra-fast reads/writes
+A super-fast shared memory layer
+caching
+queues
+sessions
+rate limiting
+coordination
+state storage for AI agents
+Key-Value Store (base model)
+key value can be anything string:array,hahs:string etc
+
+cache_key=f"llm:{question}"
+
+if redis.exists(cache_key):
+    return redis.get(cache_key)
+response=call_llm(question)
+redis.set(cache_key,response,ex=3600)
+
+TTL (Time To Live)
+redis.set(cache_key,response,ex=3600)
+
+Rate limiting
+key=f"rate:{user_id}"
+count=redis.incr(key)
+if count==1:
+redis.expire(key,60)
+if count>10:
+block_request()
+
+import redis
+redis_client=redis.Redis(
+    host="localhost",
+    port=6367,
+   decode_responses=True
+)
+//////////////////////Cache layer (LLM responses)
+import hashlib
+def get_cache_key(response):
+    return "llm:":+hashlib.md5(response.encode()).hexdigest()
+
+def cache_llm_call(prompt,llm_fn):
+key=get_cache_key(prompt)
+
+    cached = redis_client.get(key)
+    if cached:
+        return cached
+ response = llm_fn(prompt)
+
+    redis_client.set(key, response, ex=3600)
+
+    return response
+
+~~~~~~~~~~~~~~~~~~~Conversation memory
+def save_message(user_id, message):
+    key = f"chat:{user_id}"
+    redis_client.rpush(key, message)
+
+
+def get_history(user_id):
+    return redis_client.lrange(f"chat:{user_id}", 0, -1)
+
+
+
+
+
+
+A. Input Guardrails (User → Model)
+
+These protect against:
+
+Prompt injection
+Jailbreak attempts
+PII leakage requests
+Malicious or irrelevant queries
+
+
+B. Output Guardrails (Model → User)
+No hallucinated sensitive claims
+No unsafe content
+Correct formatting (JSON, SQL, etc.)
+No secrets leakage
+
+import json
+from jsonschema import validate, ValidationError
+schema = {
+    "type": "object",
+    "properties": {
+        "answer": {"type": "string"},
+        "confidence": {"type": "number"}
+    },
+    "required": ["answer", "confidence"]
+}
+
+
+def output_guardrail(model_output: str):
+    try:
+        data = json.loads(model_output)
+         validate(instance=data, schema=schema)
+        return True, data
+    except (json.JSONDecodeError, ValidationError):
+        return False, None
+
+
+Safety / Content Moderation Guardrails
+def moderation_guardrail(text: str) -> bool:
+    unsafe_keywords = [
+        "kill", "bomb", "hack", "suicide", "drug synthesis"
+    ]
+
+    text_lower = text.lower()
+    return not any(word in text_lower for word in unsafe_keywords)
+
+
+
+E. Structured Output Guardrails
+import json
+
+def enforce_json(llm_call_fn, prompt, max_retries=3):
+    for _ in range(max_retries):
+        output = llm_call_fn(prompt)
+
+        try:
+            return json.loads(output)
+         except json.JSONDecodeError:
+            prompt += "\nReturn ONLY valid JSON."
+    
+    raise ValueError("Failed to produce valid JSON")
+
+
+
+A. LLM-as-a-Judge Guardrail
+
+def llm_judge(evaluator_llm, response: str) -> bool:
+    prompt = f"""
+    Evaluate if this response is safe and correct:
+
+    {response}
+
+    Answer only YES or NO.
+    """
+
+    verdict = evaluator_llm(prompt).strip().lower()
+    return verdict == "yes"
+
+
+B. Embedding-Based Policy Filtering
+from sentence_transformers import SentenceTransformer, util
+
+model = SentenceTransformer("all-MiniLM-L6-v2")
+policy_embeddings = model.encode([
+    "instructions to build weapons",
+    "self harm content",
+    "hate speech"
+])
+def embedding_guardrail(text: str):
+    text_emb = model.encode(text)
+    scores = util.cos_sim(text_emb, policy_embeddings)
+
+    return scores.max().item() < 0.7
+
+
+C. Rate Limiting Guardrails
+
+
+
+
+                ┌────────────────────────┐
+User Request →  │ Input Firewall Layer   │  (PII, injection, policy)
+                └─────────┬──────────────┘
+                          ↓
+                ┌────────────────────────┐
+                │ Context Builder        │  (RAG, memory filtering)
+                └─────────┬──────────────┘
+                          ↓
+                ┌────────────────────────┐
+                │ LLM Call Layer         │
+                └─────────┬──────────────┘
+                          ↓
+                ┌────────────────────────┐
+                │ Output Safety Layer    │  (toxicity, hallucination)
+                └─────────┬──────────────┘
+                          ↓
+                ┌────────────────────────┐
+                │ Tool Execution Guard   │  (critical for agents)
+                └─────────┬──────────────┘
+                          ↓
+                      Response
+
+
+RAGAS (Retrieval Augmented Generation Assessment)
+It exists because RAG systems have two failure surfaces that traditional NLP metrics (BLEU, ROUGE, F1)
+Retrieval failure: the retriever pulls irrelevant, incomplete, or noisy chunks.
+Generation failure: the LLM hallucinates, ignores retrieved context, answers off-topic, or is unfaithful to the source documents even when retrieval was correct.
+
+
+Catch   silent drift when the embedding model, vector DB, or LLM provider changes.
+
+
+
+User Query-----RAG APPLICATION
+     |
+     Evaluation Dataset{question, contexts, answer,             
+                             ground_truth (optional)} 
+                             |
+                             RAGAS ENGINE 
+                        LLM-as-Judge          Embedding-based  │ │
+                     │  │ metrics       │   │ metrics          │ │
+                     │  │ (faithfulness,│   │ (answer semantic │ │
+                     │  │ relevancy,    │   │ similarity, etc.)│ │
+                     │  │ precision...)
+
+Retrieval-side metrics
+Context Precision
+Measures whether the retrieved chunks that are actually relevant are ranked near the top. 
+Context Recall
+Measures whether all the information needed to produce the ground-truth answer is present somewhere in the retrieved contexts.
+Context Entity Recall
+Similar to recall but focused specifically on whether named entities (dates, people, numbers, proper nouns) in the ground truth appear in retrieved context
+
+
+Generation-side metrics
+Faithfulness model is generating content not grounded in the retrieved documents — hallucination.
+Answer Relevancy
+Measures whether the answer actually addresses the question
+Answer Correctness (requires ground truth)
+Combines factual overlap with the ground-truth answer and semantic similarity 
+Answer Semantic Similarity (requires ground truth)
+Pure embedding cosine similarity between generated answer and reference answer
+
+
+
+from ragas import evaluate
+from ragas.metrics import (
+    faithfulness,
+    answer_relevancy,
+    context_precision,
+    context_recall,
+)
+
+from ragas.llms import LangchainLLMWrapper
+from ragas.embeddings import LangchainEmbeddingsWrapper
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from datasets import Dataset
+
+# 1. Configure judge LLM and embeddings (decoupled from your app's LLM)
+judge_llm = LangchainLLMWrapper(ChatOpenAI(model="gpt-4o-mini", temperature=0))
+judge_embeddings = LangchainEmbeddingsWrapper(OpenAIEmbeddings(model="text-embedding-3-small"))
+
+eval_data = {
+    "question": [
+        "What is the refund window for annual plans?",
+    ],
+    "contexts": [
+        [
+            "Annual subscriptions can be refunded within 30 days of purchase.",
+            "Monthly subscriptions are non-refundable after 7 days.",
+        ],
+    ],
+    "answer": [
+        "You can get a refund on an annual plan within 30 days of purchase.",
+    ],
+    "ground_truth": [
+        "Annual plans have a 30-day refund window.",
+    ],
+}
+
+
+dataset = Dataset.from_dict(eval_data)
+# 3. Run evaluation
+result = evaluate(
+    dataset=dataset,
+    metrics=[faithfulness, answer_relevancy, context_precision, context_recall],
+    llm=judge_llm,
+    embeddings=judge_embeddings,
+)
+
+
+Custom business-rule metric 
+from ragas.metrics import AspectCritic
+no_pricing_hallucination = AspectCritic(
+    name="no_pricing_hallucination",
+    definition=(
+        "Return 1 if the answer states specific prices/numbers that are NOT "
+        "explicitly present in the given context. Return 0 otherwise."
+    ),
+    llm=judge_llm,
+)
+result = evaluate(dataset=dataset, metrics=[no_pricing_hallucination], llm=judge_llm)
+
+
+Synthetic test set generation
+from ragas.testset import TestsetGenerator
+from langchain_community.document_loaders import DirectoryLoader
+docs = DirectoryLoader("./knowledge_base", glob="**/*.md").load()
+generator = TestsetGenerator(llm=judge_llm, embedding_model=judge_embeddings)
+testset = generator.generate_with_langchain_docs(
+    docs,
+    testset_size=100,   # produces question/contexts/ground_truth triples automatically
+)
+testset_df = testset.to_pandas()
+
+
+ Production Architecture Pattern
+Pre-merge CI gate 
+Nightly/scheduled full regression
+Live sampled monitoring
+
+
+
+import os
+from datetime import datetime, timedelta
+from datasets import Dataset
+from ragas import evaluate
+from ragas.metrics import faithfulness, answer_relevancy, context_precision, AspectCritic
+from ragas.llms import LangchainLLMWrapper
+from langchain_openai import ChatOpenAI
+from langfuse import Langfuse
+
+
+langfuse = Langfuse()
+judge_llm = LangchainLLMWrapper(ChatOpenAI(model="gpt-4o-mini", temperature=0))
+PII_LEAK_CHECK = AspectCritic(
+    name="no_pii_leak",
+    definition="Return 1 if the answer exposes any personal data not present in the context. Else 0.",
+    llm=judge_llm,
+)
+FAITHFULNESS_THRESHOLD = 0.85
+RELEVANCY_THRESHOLD = 0.80
+
+
+
+
+def run_evaluation(dataset: Dataset):
+    return evaluate(
+        dataset=dataset,
+        metrics=[faithfulness, answer_relevancy, context_precision, PII_LEAK_CHECK],
+        llm=judge_llm,
+    ).to_pandas()
+
+
+def traces_to_dataset(traces) -> Dataset:
+        records = {"question": [], "contexts": [], "answer": []}
+    for t in traces:
+        records["question"].append(t.input["query"])
+        records["contexts"].append(t.metadata["retrieved_chunks"])
+        records["answer"].append(t.output["answer"])
+    return Dataset.from_dict(records)
+
+
+def fetch_recent_traces(hours: int = 24, sample_rate: float = 0.05):
+    """Pull a sample of recent RAG traces from the observability store."""
